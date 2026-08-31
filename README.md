@@ -1,46 +1,48 @@
 # Preemptive User-Thread Runtime
 
-A compact educational runtime that demonstrates how multiple execution flows can be scheduled inside a single Linux process without using `pthread` for thread management.
+A compact user-level threading library for Linux, written in C. The runtime creates
+independent execution contexts in one process and schedules them with a combination
+of fixed priorities and round-robin time slices.
 
-The project models the core responsibilities of a threading system: saving execution state, selecting the next runnable thread, handling completion, and protecting shared data. Its scheduler supports voluntary yields as well as timer-driven preemption.
+The project is deliberately small: the scheduler, context switching, and
+synchronization primitives can all be read without working through a framework.
 
-## Runtime design
+## What it supports
 
-Each user thread owns a stack and a saved CPU context. Runnable threads wait in a FIFO queue, and the scheduler rotates through that queue using round-robin order.
+- user threads with private stacks and integer priorities from 0 to 127
+- immediate scheduling when a newly created thread has a higher priority
+- time-sliced preemption with `SIGVTALRM`
+- cooperative yielding and thread joins
+- blocking locks, condition variables, and counting semaphores
+- FIFO order among threads at the same priority
 
-A virtual interval timer delivers `SIGVTALRM` after each time slice. When the signal arrives, the runtime preserves the current context and transfers control to the next ready thread. Scheduler-critical operations temporarily block the timer signal so queue and lifecycle state cannot be interrupted halfway through an update.
+## Build and test
 
-Thread execution follows this lifecycle:
+The runtime targets Linux because it uses POSIX `ucontext`, signals, and virtual
+interval timers.
 
-```text
-created -> ready -> running -> completed
-                 |       |
-                 +-> suspended
+```sh
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
-Completed threads retain their return value until another thread joins them, after which their runtime resources can be reclaimed.
+Public declarations are in `ThreadSystemCode/ThreadLibrary/threads.h`. The
+automated smoke test covers scheduling, joins, semaphores, conditions, locks, and
+the queue.
 
-## Supported operations
+## Design notes
 
-- initialize the runtime with a configurable scheduling quantum
-- create a thread from a function and argument
-- yield execution voluntarily
-- identify the currently running thread
-- wait for a thread and collect its return value
-- suspend and resume existing threads
-- terminate a thread explicitly
-- coordinate access to shared state with a lightweight lock
+Each thread owns a `ucontext_t` and a 64 KiB stack. Ready threads are stored in 128
+priority queues. The scheduler chooses the highest non-empty queue, while the timer
+handler returns a running thread to the back of its queue to provide round-robin
+execution among equal-priority threads. Synchronization operations block threads in
+scheduler-managed wait queues instead of spinning.
 
-## What this project demonstrates
+This is an educational runtime, not a replacement for POSIX threads. In particular,
+context switching from a signal handler is representative of classic teaching
+implementations rather than a production async-signal-safe design.
 
-- user-space context switching
-- preemptive round-robin scheduling
-- signal masking around scheduler-critical state
-- thread lifecycle and resource ownership
-- synchronization between independently scheduled tasks
+## License
 
-## Scope
-
-This is a learning project intended to make scheduling internals small enough to inspect and explain. It targets Linux on x86-64 and is not intended to replace production threading libraries such as POSIX threads.
-
-This repository currently contains project documentation only.
+Available under the MIT license. See [LICENSE](LICENSE).
